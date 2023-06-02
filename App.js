@@ -1,56 +1,159 @@
 import { StatusBar } from "expo-status-bar";
-import { ScrollView, StyleSheet, Text, View, Dimensions } from "react-native";
+import { useEffect, useState } from "react";
+import * as Location from "expo-location";
+import {
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  Dimensions,
+  ActivityIndicator,
+} from "react-native";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
+const API_KEY = "21bda8e399d110518c102ec4ec22ffa5";
+
 export default function App() {
+  const [city, setCity] = useState("Loading...");
+  const [mainWeather, setMainWeather] = useState();
+  const [days, setDays] = useState({});
+  const [permission, setPermission] = useState(true);
+
+  const getMainWeather = (jsonDays) => {
+    let daysObj = new Object();
+
+    jsonDays.forEach((day) => {
+      const date = day.dt_txt.split(" ")[0];
+      const time = day.dt_txt.split(" ")[1];
+      const weather = day.weather[0].main;
+      const description = day.weather[0].description;
+      const temp = day.main.temp;
+
+      const keys = Object.keys(daysObj);
+      if (keys.includes(date)) {
+        daysObj[date][time] = {
+          weather,
+          description,
+          temp,
+        };
+      } else {
+        daysObj[date] = {
+          [time]: {
+            weather,
+            description,
+            temp,
+          },
+        };
+      }
+    });
+    setDays(daysObj);
+  };
+
+  const getWeather = async () => {
+    const { granted } = await Location.requestForegroundPermissionsAsync();
+    if (!granted) {
+      setPermission(false);
+    }
+
+    const {
+      coords: { latitude, longitude },
+    } = await Location.getCurrentPositionAsync({ accuracy: 5 });
+    const location = await Location.reverseGeocodeAsync(
+      { latitude, longitude },
+      { useGoogleMaps: false }
+    );
+    setCity(location[0].city + " " + location[0].district);
+
+    const res = await fetch(
+      `https://api.openweathermap.org/data/2.5/forecast?lat=${latitude}&lon=${longitude}&appid=${API_KEY}`
+    );
+    const json = await res.json();
+
+    return json.list;
+  };
+
+  useEffect(() => {
+    getWeather().then((item) => {
+      getMainWeather(item);
+    });
+  }, []);
+
   return (
     <>
       <View style={styles.container}>
         <View style={styles.city}>
-          <Text style={styles.cityName}>Osaka</Text>
+          <Text style={styles.cityName}>{city}</Text>
         </View>
         <ScrollView
           horizontal
           pagingEnabled
           contentContainerStyle={styles.weather}
         >
-          <View style={styles.day}>
-            <View style={styles.info}>
-              <Text style={styles.temp}>27</Text>
-              <Text style={styles.description}>Sunny</Text>
+          {Object.keys(days).length === 0 ? (
+            <View style={styles.day}>
+              <ActivityIndicator
+                size="large"
+                color="purple"
+              ></ActivityIndicator>
             </View>
-            <View style={styles.detail}>
-              <Text>detail</Text>
-            </View>
-          </View>
-          <View style={styles.day}>
-            <View style={styles.info}>
-              <Text style={styles.temp}>27</Text>
-              <Text style={styles.description}>Sunny</Text>
-            </View>
-            <View style={styles.detail}>
-              <Text>detail</Text>
-            </View>
-          </View>
-          <View style={styles.day}>
-            <View style={styles.info}>
-              <Text style={styles.temp}>27</Text>
-              <Text style={styles.description}>Sunny</Text>
-            </View>
-            <View style={styles.detail}>
-              <Text>detail</Text>
-            </View>
-          </View>
-          <View style={styles.day}>
-            <View style={styles.info}>
-              <Text style={styles.temp}>27</Text>
-              <Text style={styles.description}>Sunny</Text>
-            </View>
-            <View style={styles.detail}>
-              <Text>detail</Text>
-            </View>
-          </View>
+          ) : (
+            Object.keys(days).map((day, idx) => {
+              console.log(days[day]);
+
+              let sumTemp = 0;
+              const weatherDays = {};
+              for (const property in days[day]) {
+                sumTemp += days[day][property].temp;
+
+                const weather = days[day][property].weather;
+                const keys = Object.keys(weatherDays);
+                if (keys.includes(days[day][property].weather)) {
+                  weatherDays[weather] += 1;
+                } else {
+                  weatherDays[weather] = 1;
+                }
+              }
+              const maxValue = Math.max(...Object.values(weatherDays));
+              const weatherToday = Object.keys(weatherDays).find(
+                (key) => weatherDays[key] === maxValue
+              );
+
+              const avgTemp = Math.floor(
+                sumTemp / Object.keys(days[day]).length
+              );
+
+              let date = day.split("-");
+              const m = date[1];
+              const d = date[2];
+              date = m + "月" + d + "日";
+
+              return (
+                <View key={idx} style={styles.day}>
+                  <View style={styles.info}>
+                    <Text style={styles.date}>{date}</Text>
+                    <Text style={styles.description}>{weatherToday}</Text>
+                    <Text style={styles.temp}>{avgTemp}</Text>
+                  </View>
+                  <View style={styles.detail}>
+                    {Object.keys(days[day]).map((detail, idx) => {
+                      return (
+                        <View key={idx} style={styles.detailWrapper}>
+                          <Text style={styles.detailTime}>{detail}</Text>
+                          <Text style={styles.detailWeather}>
+                            {days[day][detail].weather}
+                          </Text>
+                          <Text style={styles.detailTemp}>
+                            {days[day][detail].temp}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              );
+            })
+          )}
         </ScrollView>
       </View>
     </>
@@ -75,13 +178,17 @@ const styles = StyleSheet.create({
   day: {
     width: SCREEN_WIDTH,
   },
+  date: {
+    fontSize: 40,
+    fontWeight: "bold",
+  },
   temp: {
-    fontSize: 100,
+    marginTop: -30,
+    fontSize: 60,
     fontWeight: "bold",
   },
   description: {
-    marginTop: -30,
-    fontSize: 60,
+    fontSize: 100,
   },
   info: {
     alignItems: "center",
@@ -92,6 +199,12 @@ const styles = StyleSheet.create({
   detail: {
     flex: 1,
   },
+  detailWrapper: {
+    flexDirection: "row",
+  },
+  detailTime: { flex: 1, fontSize: 20, marginBottom: 5 },
+  detailWeather: { flex: 1, fontSize: 20, marginBottom: 5 },
+  detailTemp: { flex: 1, fontSize: 20, marginBottom: 5 },
 });
 
 // ViewはContainer
